@@ -1,0 +1,26 @@
+2025-05-24 18:09:39,485 - src.pipeline - INFO - Starting ETL pipeline
+2025-05-24 18:09:39,486 - src.pipeline - INFO - Processing wells data
+2025-05-24 18:09:39,486 - src.data_processors - INFO - Loading wells data from input/Wells.csv
+2025-05-24 18:09:39,497 - src.data_processors - INFO - Loaded 250 wells
+2025-05-24 18:09:39,498 - src.data_processors - INFO - Loading bottom hole data from input/BottomholeLocations.csv
+2025-05-24 18:09:39,503 - src.data_processors - INFO - Loaded 217 bottom hole locations
+2025-05-24 18:09:39,503 - src.data_processors - INFO - Merging wells with bottom hole locations
+2025-05-24 18:09:39,506 - src.data_processors - INFO - Calculating lateral lengths
+2025-05-24 18:09:39,520 - src.pipeline - INFO - Processing production data
+2025-05-24 18:09:39,521 - src.data_processors - INFO - Loading production data from input/Production.xml
+2025-05-24 18:09:39,883 - src.data_processors - INFO - Processed 2771 production records
+2025-05-24 18:09:39,883 - src.pipeline - INFO - Calculating and merging cumulative production
+2025-05-24 18:09:39,883 - src.data_processors - INFO - Calculating cumulative production
+2025-05-24 18:09:39,886 - src.pipeline - INFO - Adding well spacing features
+2025-05-24 18:09:39,887 - src.well_spacing - INFO - Calculating well spacing features
+2025-05-24 18:09:41,785 - src.pipeline - INFO - Loading data to database
+2025-05-24 18:09:41,832 - src.data_processors - INFO - Connected to database
+2025-05-24 18:09:41,946 - src.data_processors - INFO - Loaded 250 records to table Wells
+2025-05-24 18:09:42,049 - src.data_processors - INFO - Loaded 2771 records to table Production
+2025-05-24 18:09:42,052 - src.pipeline - INFO - Pipeline statistics: {'total_wells': 250, 'horizontal_wells': 37, 'avg_lateral_length_horizontal': 8381.027777777777, 'wells_with_production': 91, 'total_cumulative_oil': 1247892.0, 'total_cumulative_gas': 2033231.0, 'total_cumulative_water': 2594928.0, 'avg_well_density': 0.5067493388045947, 'avg_distance_to_nearest_horizontal': 22055.448}
+2025-05-24 18:09:42,052 - src.pipeline - INFO - ETL pipeline completed successfully
+2025-05-24 18:37:21,206 - __main__ - INFO - Loading wells data
+2025-05-24 18:37:21,218 - __main__ - INFO - Loaded 250 wells
+2025-05-24 18:37:21,219 - __main__ - INFO - Loading bottom hole locations data
+2025-05-24 18:37:21,233 - __main__ - INFO - Loaded 217 bottom hole locations
+2025-05-24 18:37:21,233 - __main__ - INFO - Merging wells with bottom hole locations

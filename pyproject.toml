@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oil-gas-wells-etl"
+version = "1.0.0"
+description = "ETL pipeline for oil and gas well data processing"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.26.4",
+    "pandas>=2.2.1",
+    "SQLAlchemy>=2.0.29",
+    "psycopg2-binary>=2.9.9",
+    "python-dotenv>=1.0.1",
+    "lxml>=5.3.2",
+    "scikit-learn>=1.4.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.1",
+    "pytest-cov>=4.0.0",
+    "black>=24.3.0",
+    "flake8>=7.0.0",
+    "mypy>=1.9.0",
+]
+
+[project.scripts]
+etl-pipeline = "main:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers --strict-config --verbose"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true 
