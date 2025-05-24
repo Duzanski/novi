@@ -5,14 +5,18 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 pd.set_option("display.max_columns", None)
-pd.set_option("display.width", None)  # Auto-detect terminal width
-pd.set_option("display.max_colwidth", None)  # Don't truncate column contents
-pd.set_option("display.expand_frame_repr", False)  # Don't wrap to multiple lines
+pd.set_option("display.width", None)
+pd.set_option("display.max_colwidth", None)
+pd.set_option("display.expand_frame_repr", False)
+
+logger = logging.getLogger(__name__)
 
 
-# %%
 def distance_in_feet(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     """https://en.wikipedia.org/wiki/Geographical_distance"""
 
@@ -32,75 +36,108 @@ def distance_in_feet(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     return round(radius_earth_feet * c)
 
 
-# %%
+# Task 2: Add PLSS column in format "SWNE 24 3S 6W"
+def add_plss_column(wells_df):
+    """Add PLSS column in format 'SWNE 24 3S 6W'."""
+    wells_df["PLSS"] = (
+        wells_df["QuarterQuarter"].astype(str)
+        + " "
+        + wells_df["Sec"].astype(str)
+        + " "
+        + wells_df["Township"].astype(str)
+        + wells_df["TownshipDir"].astype(str)
+        + " "
+        + wells_df["Range"].astype(str)
+        + wells_df["RangeDir"].astype(str)
+    )
+    return wells_df
+
+
+def load_data(df: pd.DataFrame, table_name: str, if_exists: str = "append") -> None:
+    """Load dataframe to database table. Logs success or failure of the operation."""
+
+    try:
+        df.to_sql(table_name, con=engine, index=False, if_exists=if_exists)
+        logger.info(f"Loaded {len(df)} records to table {table_name}")
+    except Exception as e:
+        logger.error(f"Failed to load data to {table_name}: {e}")
+        raise
+
+
 if __name__ == "__main__":
+
     load_dotenv()
     engine = create_engine(os.getenv("DATABASE_CONNECTION"))
+
+    """Load and process wells data from CSV."""
+    logger.info(f"Loading wells data")
 
     wells = pd.read_csv(
         "input/Wells.csv", encoding="ISO-8859-1", skiprows=1, dtype={"API": str}
     )
-    wells["API10"] = wells["API"].str[:10]
-    # wells["Operator"] = wells["Operator"].replace("±", "a") - Replace was not working so I used regex
-    wells["Operator"] = wells["Operator"].str.replace(r"[±]", "a", regex=True)
-    wells["IsHorizontalWell"] = wells["Dir_Horiz"] == "Y"
-    wells["State"] = "Utah"
-    print(wells[wells["API10"] == "4301330372"])
-    # %%
-    # Task 2: Add PLSS column in format "SWNE 24 3S 6W"
-    wells["PLSS"] = (
-        wells["QuarterQuarter"].astype(str)
-        + " "
-        + wells["Sec"].astype(str)
-        + " "
-        + wells["Township"].astype(str)
-        + wells["TownshipDir"].astype(str)
-        + " "
-        + wells["Range"].astype(str)
-        + wells["RangeDir"].astype(str)
-    )
 
-    wells = wells[
-        [
-            "State",
-            "API10",
-            "Operator",
-            "IsHorizontalWell",
-            "Latitude",
-            "Longitude",
-            "PLSS",
+    try:
+        wells["API10"] = wells["API"].str[:10]
+        # wells["Operator"] = wells["Operator"].replace("±", "a") - Replace was not working so I used regex
+        wells["Operator"] = wells["Operator"].str.replace(r"[±]", "a", regex=True)
+        wells["IsHorizontalWell"] = wells["Dir_Horiz"] == "Y"
+        wells["State"] = "Utah"
+
+        # Add PLSS column
+        wells = add_plss_column(wells)
+
+        # Select relevant columns
+        wells = wells[
+            [
+                "State",
+                "API10",
+                "Operator",
+                "IsHorizontalWell",
+                "Latitude",
+                "Longitude",
+                "PLSS",
+            ]
         ]
-    ]
 
-    print(wells)
+        logger.info(f"Loaded {len(wells)} wells")
 
-    # %%
-    bottom_hole_locations = pd.read_csv(
-        "input/BottomholeLocations.csv",
-        sep="\t",
-        on_bad_lines="skip",
-        dtype={"API": str},
-        index_col=None,
+    except Exception as e:
+        logger.error(f"Error loading wells data: {e}")
+        raise
+
+    """Load and process bottom hole locations data from CSV."""
+    logger.info(f"Loading bottom hole locations data")
+    try:
+        bottom_hole_locations = pd.read_csv(
+            "input/BottomholeLocations.csv",
+            sep="\t",
+            on_bad_lines="skip",
+            dtype={"API": str},
+            index_col=None,
+        )
+        bottom_hole_locations = bottom_hole_locations.iloc[:, 1:]
+        bottom_hole_locations["API10"] = bottom_hole_locations["API"].str[:10]
+        bottom_hole_locations = bottom_hole_locations[
+            bottom_hole_locations["API10"].isin(wells["API10"])
+        ]
+        logger.info(f"Loaded {len(bottom_hole_locations)} bottom hole locations")
+    except Exception as e:
+        logger.error(f"Error loading bottom hole data: {e}")
+        raise
+
+    logger.info("Merging wells with bottom hole locations")
+
+    wells_renamed = wells.rename(
+        columns={"Latitude": "SHLLatitude", "Longitude": "SHLLongitude"}
     )
-    bottom_hole_locations = bottom_hole_locations.iloc[:, 1:]  # drop index column
-    bottom_hole_locations["API10"] = bottom_hole_locations["API"].str[:10]
-    bottom_hole_locations = bottom_hole_locations[
-        bottom_hole_locations["API10"].isin(wells["API10"])
-    ]
-    print(bottom_hole_locations)
-    # %%
 
-    wells = pd.merge(
-        wells.rename(columns={"Latitude": "SHLLatitude", "Longitude": "SHLLongitude"}),
-        bottom_hole_locations[["API10", "Latitude", "Longitude"]].rename(
-            columns={"Latitude": "BHLatitude", "Longitude": "BHLongitude"}
-        ),
-        on="API10",
-        how="left",
-    )
+    bottom_hole_renamed = bottom_hole_locations[
+        ["API10", "Latitude", "Longitude"]
+    ].rename(columns={"Latitude": "BHLatitude", "Longitude": "BHLongitude"})
 
-    print(wells)
-    # %%
+    wells = pd.merge(wells_renamed, bottom_hole_renamed, on="API10", how="left")
+
+    logger.info("Calculating lateral lengths")
     wells["LateralLength"] = wells.apply(
         lambda row: (
             distance_in_feet(
@@ -114,6 +151,7 @@ if __name__ == "__main__":
         axis=1,
     )
 
+    """Apply data quality filters to lateral lengths."""
     max_lat_length = 22_000
     wells.loc[wells["LateralLength"] > max_lat_length, "LateralLength"] = None
 
@@ -130,32 +168,35 @@ if __name__ == "__main__":
         ].LateralLength.mean(),
     }
 
-    print(stats)
+    """Process production data from XML files."""
+    logger.info("Loading production data from XML")
 
-    # wells.to_sql("Wells", con=engine, index=False, if_exists="replace")  # Moved to end after cumulative calculation
-    # %%
-    production = pd.read_xml(
-        "input/Production.xml",
-        dtype={
-            c: str
-            for c in ["API", "api_state_code", "api_county_code", "api_well_code"]
-        },
-    )
-    print(production)
+    try:
+        production = pd.read_xml(
+            "input/Production.xml",
+            dtype={
+                c: str
+                for c in ["API", "api_state_code", "api_county_code", "api_well_code"]
+            },
+        )
 
-    # %%
-    for column in ["ReportPeriod", "Received"]:
-        production[column] = pd.to_datetime(production[column])
-    production["API10"] = (
-        production["api_state_code"]
-        + production["api_county_code"]
-        + production["api_well_code"]
-    )
-    # Task 1- As per shared graph, the date should be the report period
-    production["Date"] = production["ReportPeriod"]
-    production = production[production["API10"].isin(wells["API10"])]
+        for column in ["ReportPeriod", "Received"]:
+            production[column] = pd.to_datetime(production[column])
+        production["API10"] = (
+            production["api_state_code"]
+            + production["api_county_code"]
+            + production["api_well_code"]
+        )
 
-    production = production[["API10", "Date", "Oil", "Gas", "Water"]]
+        # Task 1- As per shared graph, the date should be the report period instead of received
+        production["Date"] = production["ReportPeriod"]
+        production = production[production["API10"].isin(wells["API10"])]
+
+        production = production[["API10", "Date", "Oil", "Gas", "Water"]]
+        logger.info(f"Processed {len(production)} production records")
+    except Exception as e:
+        logger.error(f"Error loading production data: {e}")
+        raise
 
     monthly_limits = {"Oil": 500_000, "Gas": 5_000_000, "Water": 20_000_000}
 
@@ -163,14 +204,15 @@ if __name__ == "__main__":
         production.loc[production[product] < 0, product] = np.nan
         production.loc[production[product] > max_production, product] = np.nan
 
-    production.to_sql("Production", con=engine, index=False, if_exists="replace")
+    load_data(production, "Production", if_exists="append")
 
-    # %%
+    """Calculate cumulative production by well."""
+    logger.info("Calculating cumulative production")
     # Task 2: Calculate lifetime cumulative production from actual production data
     cumulative_production = (
         production.groupby("API10")[["Oil", "Gas", "Water"]].sum().reset_index()
     )
-    print(cumulative_production)
+
     cumulative_production = cumulative_production.rename(
         columns={
             "Oil": "CumulativeOil_Calculated",
@@ -183,6 +225,6 @@ if __name__ == "__main__":
     wells = pd.merge(wells, cumulative_production, on="API10", how="left")
 
     # Update the wells table in database with new columns
-    wells.to_sql("Wells", con=engine, index=False, if_exists="replace")
+    load_data(wells, "Wells", if_exists="append")
 
 # %%
