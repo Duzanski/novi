@@ -53,7 +53,9 @@ def add_plss_column(wells_df):
     return wells_df
 
 
-def load_data(df: pd.DataFrame, table_name: str, if_exists: str = "append") -> None:
+def load_data(
+    df: pd.DataFrame, table_name: str, engine, if_exists: str = "append"
+) -> None:
     """Load dataframe to database table. Logs success or failure of the operation."""
 
     try:
@@ -64,13 +66,9 @@ def load_data(df: pd.DataFrame, table_name: str, if_exists: str = "append") -> N
         raise
 
 
-if __name__ == "__main__":
-
-    load_dotenv()
-    engine = create_engine(os.getenv("DATABASE_CONNECTION"))
-
+def load_wells_data():
     """Load and process wells data from CSV."""
-    logger.info(f"Loading wells data")
+    logger.info("Loading wells data")
 
     wells = pd.read_csv(
         "input/Wells.csv", encoding="ISO-8859-1", skiprows=1, dtype={"API": str}
@@ -100,13 +98,17 @@ if __name__ == "__main__":
         ]
 
         logger.info(f"Loaded {len(wells)} wells")
+        return wells
 
     except Exception as e:
         logger.error(f"Error loading wells data: {e}")
         raise
 
+
+def load_bottom_hole_data(wells_df):
     """Load and process bottom hole locations data from CSV."""
-    logger.info(f"Loading bottom hole locations data")
+    logger.info("Loading bottom hole locations data")
+
     try:
         bottom_hole_locations = pd.read_csv(
             "input/BottomholeLocations.csv",
@@ -118,13 +120,18 @@ if __name__ == "__main__":
         bottom_hole_locations = bottom_hole_locations.iloc[:, 1:]
         bottom_hole_locations["API10"] = bottom_hole_locations["API"].str[:10]
         bottom_hole_locations = bottom_hole_locations[
-            bottom_hole_locations["API10"].isin(wells["API10"])
+            bottom_hole_locations["API10"].isin(wells_df["API10"])
         ]
         logger.info(f"Loaded {len(bottom_hole_locations)} bottom hole locations")
+        return bottom_hole_locations
+
     except Exception as e:
         logger.error(f"Error loading bottom hole data: {e}")
         raise
 
+
+def merge_wells_with_bottom_holes(wells, bottom_hole_locations):
+    """Merge wells with bottom hole locations and calculate lateral lengths."""
     logger.info("Merging wells with bottom hole locations")
 
     wells_renamed = wells.rename(
@@ -135,10 +142,10 @@ if __name__ == "__main__":
         ["API10", "Latitude", "Longitude"]
     ].rename(columns={"Latitude": "BHLatitude", "Longitude": "BHLongitude"})
 
-    wells = pd.merge(wells_renamed, bottom_hole_renamed, on="API10", how="left")
+    wells_merged = pd.merge(wells_renamed, bottom_hole_renamed, on="API10", how="left")
 
     logger.info("Calculating lateral lengths")
-    wells["LateralLength"] = wells.apply(
+    wells_merged["LateralLength"] = wells_merged.apply(
         lambda row: (
             distance_in_feet(
                 row.SHLLatitude, row.SHLLongitude, row.BHLatitude, row.BHLongitude
@@ -151,6 +158,13 @@ if __name__ == "__main__":
         axis=1,
     )
 
+    # Apply data quality filters to lateral lengths
+    wells_merged = apply_lateral_length_filters(wells_merged)
+
+    return wells_merged
+
+
+def apply_lateral_length_filters(wells):
     """Apply data quality filters to lateral lengths."""
     max_lat_length = 22_000
     wells.loc[wells["LateralLength"] > max_lat_length, "LateralLength"] = None
@@ -161,13 +175,20 @@ if __name__ == "__main__":
         "LateralLength",
     ] = None
 
-    stats = {
+    return wells
+
+
+def get_wells_stats(wells):
+    """Get statistics about wells."""
+    return {
         "NumberOfHorizontalWells": int(wells.IsHorizontalWell.sum()),
         "AvgLateralLengthHorizontalWells": wells[
             wells.IsHorizontalWell
         ].LateralLength.mean(),
     }
 
+
+def load_production_data(wells_df):
     """Process production data from XML files."""
     logger.info("Loading production data from XML")
 
@@ -190,25 +211,33 @@ if __name__ == "__main__":
 
         # Task 1- As per shared graph, the date should be the report period instead of received
         production["Date"] = production["ReportPeriod"]
-        production = production[production["API10"].isin(wells["API10"])]
+        production = production[production["API10"].isin(wells_df["API10"])]
 
         production = production[["API10", "Date", "Oil", "Gas", "Water"]]
         logger.info(f"Processed {len(production)} production records")
+        return production
+
     except Exception as e:
         logger.error(f"Error loading production data: {e}")
         raise
 
+
+def apply_production_quality_filters(production):
+    """Apply data quality filters to production data."""
     monthly_limits = {"Oil": 500_000, "Gas": 5_000_000, "Water": 20_000_000}
 
     for product, max_production in monthly_limits.items():
         production.loc[production[product] < 0, product] = np.nan
         production.loc[production[product] > max_production, product] = np.nan
 
-    load_data(production, "Production", if_exists="append")
+    return production
 
+
+# Task 2: Calculate lifetime cumulative production from actual production data
+def calculate_cumulative_production(production):
     """Calculate cumulative production by well."""
     logger.info("Calculating cumulative production")
-    # Task 2: Calculate lifetime cumulative production from actual production data
+
     cumulative_production = (
         production.groupby("API10")[["Oil", "Gas", "Water"]].sum().reset_index()
     )
@@ -221,10 +250,43 @@ if __name__ == "__main__":
         }
     )
 
-    # Merge cumulative production back to wells
+    return cumulative_production
+
+
+def main():
+    """Main ETL pipeline function."""
+    load_dotenv()
+    engine = create_engine(os.getenv("DATABASE_CONNECTION"))
+
+    # Load and process wells data
+    wells = load_wells_data()
+
+    # Load bottom hole data
+    bottom_hole_locations = load_bottom_hole_data(wells)
+
+    # Merge wells with bottom hole data and calculate lateral lengths
+    wells = merge_wells_with_bottom_holes(wells, bottom_hole_locations)
+
+    # Get wells statistics
+    stats = get_wells_stats(wells)
+    logger.info(f"Wells stats: {stats}")
+
+    # Load and process production data
+    production = load_production_data(wells)
+    production = apply_production_quality_filters(production)
+
+    # Load production data to database
+    load_data(production, "Production", engine, if_exists="append")
+
+    # Calculate cumulative production and merge with wells
+    cumulative_production = calculate_cumulative_production(production)
     wells = pd.merge(wells, cumulative_production, on="API10", how="left")
 
-    # Update the wells table in database with new columns
-    load_data(wells, "Wells", if_exists="append")
+    # Load wells data to database
+    load_data(wells, "Wells", engine, if_exists="append")
+
+
+if __name__ == "__main__":
+    main()
 
 # %%
